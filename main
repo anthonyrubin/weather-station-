@@ -1,0 +1,258 @@
+#include "DHT.h" //for the DHT11 humidity/temperature sensor
+#include <LiquidCrystal.h> //for the 1602 lcd
+#include <Wire.h>
+#include <SPI.h>
+#include <Adafruit_Sensor.h>//adafruit sensor
+#include <Adafruit_BMP280.h>
+#include "RTClib.h"
+
+
+#if defined(ARDUINO_ARCH_SAMD)
+#endif
+
+//BMP280 wire initialization
+#define BMP_SCK 5 
+#define BMP_MISO 4
+#define BMP_MOSI 3 
+#define BMP_CS 2
+
+//DHT11 initialization
+DHT dht(A0, DHT11);
+
+#define DHT11_PIN A0
+
+
+char daysOfTheWeek[7][12] = {"Sun", "Mon", "Tue", "Wed", "Thurs", "Fri", "Sat"};  //borrowed from the pfc8523 sketch.  
+ 
+ Adafruit_BMP280 bme(BMP_CS, BMP_MOSI, BMP_MISO,  BMP_SCK);
+
+ RTC_PCF8523 rtc;
+// modified for Metro Explorers Guide
+LiquidCrystal lcd(7, 8, 9, 10, 11, 12);
+
+ int displayChanger = A2;  //int that keeps track of the switch
+
+ 
+void setup() {
+   dht.begin();
+ Serial.begin(57600); //initlaiizing the RTC
+  if (! rtc.begin()) {
+    Serial.println("Couldn't find RTC");
+    while (1);
+  }
+
+if (!bme.begin()) {  
+    Serial.println("Could not find a valid BMP280 sensor, check wiring!");
+    while (1);
+  }
+//setting the displayChanger to INPUT
+ pinMode(displayChanger, INPUT);
+
+}
+
+int k = 0;  //int k will determine which output we display on the LCD
+ int state;//State will tell us if the switch is open or closed
+int counter = 1; //tells us if we should switch units or not
+ uint8_t history = 0; //used for debounce logic
+int millies = 0; //used for the logic of wheher to switch units
+int milliesTracker = 0; //used for the logic of whether or not wo switch units. 
+bool unit = false; //if this is true we switch units displayed
+void loop() {
+millies = millis();
+
+state = digitalRead(displayChanger); //get the state of the switch
+
+//debounce logic partially borrowed from Professor Stock
+  history = history << 1;
+
+//if state is low 
+if(state==LOW){
+history = history | 0x1;
+  if ((history & 0b1111111) == 0b1111111){
+if(counter==1){
+  unit = false; 
+}
+if(counter==0){
+  unit=true;
+}
+    milliesTracker = millies; //assign milliesTracker to millies.  The difference between them will begin to grow right after this declaration.
+Serial.print(unit);
+      }
+delay(300);
+}
+
+
+//else if state is high
+else{
+ if(millies-milliesTracker<=1000){
+  counter=0; //check to see how much time has elapsed 
+  return;
+}
+if(millies-milliesTracker>1000){
+  counter = 1; //check to see how much time has elapsed and set counter
+}
+
+  k++; //when state is high we want to cycle throug the display so we need to increment K
+  delay(2000);
+
+}
+
+
+//code for displaying elements on an LCD
+if(k%4 == 0){
+lcd.clear();
+  lcd.begin(16, 2);
+  lcd.setCursor(2, 0);
+  lcd.print("Temperature");
+  lcd.setCursor(4, 1);
+  int temp = (bme.readTemperature()+dht.readTemperature())/2;
+  int farenheit = (temp*(9/5)) + 32;
+  if(farenheit<32){
+    pinMode(A3, LOW);
+    pinMode(A4, LOW);
+    pinMode(A5, HIGH);
+  }
+  if(farenheit>32 && farenheit<80){
+    pinMode(A3, HIGH);
+    pinMode(A4, LOW);
+    pinMode(A5, LOW);
+  }
+    if(farenheit>80){
+    pinMode(A3, LOW);
+    pinMode(A4, HIGH);
+    pinMode(A5, LOW);
+  }
+  //if unit is false display this
+  if(unit==false){
+  String thisString = String(farenheit);
+  lcd.print(thisString);
+  lcd.print(" *F");
+ return;
+  }
+  
+  //else display this
+  if(unit==true){
+      String thisString = String(temp);
+  lcd.print(thisString);
+  lcd.print(" *C");
+  return;
+  }
+  //delay(100);
+  
+
+}
+
+  if(k%4 == 1){
+lcd.clear();
+  lcd.setCursor(4, 0);
+  lcd.print("Pressure");
+  lcd.setCursor(2, 1);
+  int pressure = bme.readPressure();
+
+
+  //if unit is false display this
+if(unit==false){
+  String pressureString = String(pressure);
+  lcd.print(pressureString);
+  lcd.print(" Pa");
+ return;
+  }
+  
+  //else display this 
+  if(unit==true){
+      String unitPressureString = String(pressure/101325);
+  lcd.print(unitPressureString);
+  lcd.print(" atm");
+  return;
+  }
+ 
+  
+}
+
+
+if(k%4 == 2){
+lcd.clear();
+  lcd.setCursor(0, 0);
+    lcd.print(rtc.now().month(), DEC);
+    lcd.print('/');
+    lcd.print(rtc.now().day(), DEC);
+    lcd.print('/');
+    lcd.print(rtc.now().year(), DEC);
+    lcd.print(" ");
+    lcd.print(daysOfTheWeek[rtc.now().dayOfTheWeek()]);
+    lcd.setCursor(0, 1);
+    lcd.print(rtc.now().hour(), DEC);
+    lcd.print(':');
+    lcd.print(rtc.now().minute(), DEC);
+    lcd.print(':');
+    lcd.print(rtc.now().second(), DEC);
+    
+    //if unit is false display this
+    if(unit==false){
+lcd.setCursor(0, 1);
+    int hour = rtc.now().hour();
+    String ampm = "";
+    if(hour<12){
+      ampm = "am";
+    }
+    if(hour>=12){
+      ampm = "pm";
+      hour = hour-12;
+    }
+    
+    
+    lcd.print(hour);
+    lcd.print(':');
+    int minute = rtc.now().minute();
+   if(minute<10){
+    lcd.print("0");
+   }
+    
+    lcd.print(minute);
+    lcd.print(':');
+    int second = rtc.now().second();
+    if(second<10){
+      lcd.print("0");
+    }
+    lcd.print(second);
+    lcd.print(" "+ampm);
+ return;
+  }
+  
+  //else display time in military time
+  if(unit==true){
+    lcd.setCursor(0, 1);
+    lcd.print(rtc.now().hour(), DEC);
+    lcd.print(':');
+   int minute = rtc.now().minute();
+   if(minute<10){
+    lcd.print("0");
+   }
+    
+    lcd.print(minute);
+    lcd.print(':');
+   int second = rtc.now().second();
+    if(second<10){
+      lcd.print("0");
+    }
+    lcd.print(second);
+  return;
+  }
+    
+
+}
+ 
+  if(k%4 == 3){
+lcd.clear();
+  lcd.setCursor(4, 0);
+  lcd.print("Humidity");
+  lcd.setCursor(4, 1);
+  String humidstring = String(dht.readHumidity());
+  
+  lcd.print(humidstring);
+  lcd.print('%');
+ 
+  return;
+  
+  }
+}
